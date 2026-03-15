@@ -1,104 +1,79 @@
 from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy.ext.associationproxy import association_proxy
+from flask_marshmallow import Marshmallow
+from marshmallow import fields
 
 db = SQLAlchemy()
+ma = Marshmallow()
 
 
-class Event(db.Model):
-    __tablename__ = 'events'
-
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String, nullable=False)
-    location = db.Column(db.String, nullable=False)
-
-    sessions = db.relationship(
-        'Session',
-        back_populates='event',
-        cascade='all, delete-orphan'
-    )
-
-    def __repr__(self):
-        return f"<Event {self.id}, {self.name}, {self.location}>"
-
-
-class SessionSpeaker(db.Model):
-    __tablename__ = 'session_speakers'
+class Customer(db.Model):
+    __tablename__ = 'customers'
 
     id = db.Column(db.Integer, primary_key=True)
-    session_id = db.Column(db.Integer, db.ForeignKey('sessions.id'), nullable=False)
-    speaker_id = db.Column(db.Integer, db.ForeignKey('speakers.id'), nullable=False)
+    name = db.Column(db.String)
 
-    session = db.relationship('Session', back_populates='session_speakers')
-    speaker = db.relationship('Speaker', back_populates='session_speakers')
+    reviews = db.relationship('Review', back_populates='customer')
+    items = association_proxy('reviews', 'item')
 
     def __repr__(self):
-        return f"<SessionSpeaker {self.id}, session_id={self.session_id}, speaker_id={self.speaker_id}>"
+        return f'<Customer {self.id}, {self.name}>'
 
 
-class Session(db.Model):
-    __tablename__ = 'sessions'
+class Item(db.Model):
+    __tablename__ = 'items'
 
     id = db.Column(db.Integer, primary_key=True)
-    title = db.Column(db.String, nullable=False)
-    start_time = db.Column(db.DateTime, nullable=False)
-    event_id = db.Column(db.Integer, db.ForeignKey('events.id'), nullable=False)
+    name = db.Column(db.String)
+    price = db.Column(db.Float)
 
-    event = db.relationship('Event', back_populates='sessions')
-
-    session_speakers = db.relationship(
-        'SessionSpeaker',
-        back_populates='session',
-        cascade='all, delete-orphan'
-    )
-
-    speakers = db.relationship(
-        'Speaker',
-        secondary='session_speakers',
-        back_populates='sessions',
-        overlaps="session_speakers,session,speaker"
-    )
+    reviews = db.relationship('Review', back_populates='item')
+    customers = association_proxy('reviews', 'customer')
 
     def __repr__(self):
-        return f"<Session {self.id}, {self.title}, {self.start_time}>"
+        return f'<Item {self.id}, {self.name}, {self.price}>'
 
 
-class Speaker(db.Model):
-    __tablename__ = 'speakers'
+class Review(db.Model):
+    __tablename__ = 'reviews'
 
     id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String, nullable=False)
+    comment = db.Column(db.String)
+    customer_id = db.Column(db.Integer, db.ForeignKey('customers.id'))
+    item_id = db.Column(db.Integer, db.ForeignKey('items.id'))
 
-    bio = db.relationship(
-        'Bio',
-        back_populates='speaker',
-        uselist=False,
-        cascade='all, delete-orphan'
-    )
-
-    session_speakers = db.relationship(
-        'SessionSpeaker',
-        back_populates='speaker',
-        cascade='all, delete-orphan'
-    )
-
-    sessions = db.relationship(
-        'Session',
-        secondary='session_speakers',
-        back_populates='speakers',
-        overlaps="session_speakers,session,speaker"
-    )
+    customer = db.relationship('Customer', back_populates='reviews')
+    item = db.relationship('Item', back_populates='reviews')
 
     def __repr__(self):
-        return f"<Speaker {self.id}, {self.name}>"
+        return f'<Review {self.id}, {self.comment}>'
 
 
-class Bio(db.Model):
-    __tablename__ = 'bios'
+class CustomerSchema(ma.SQLAlchemyAutoSchema):
+    class Meta:
+        model = Customer
+        load_instance = True
+        include_fk = True
 
-    id = db.Column(db.Integer, primary_key=True)
-    bio_text = db.Column(db.String, nullable=False)
-    speaker_id = db.Column(db.Integer, db.ForeignKey('speakers.id'), nullable=False, unique=True)
+    reviews = fields.Nested('ReviewSchema', many=True, exclude=('customer',))
+    items = fields.List(fields.Nested('ItemSchema', exclude=('reviews', 'customers')))
 
-    speaker = db.relationship('Speaker', back_populates='bio')
 
-    def __repr__(self):
-        return f"<Bio {self.id}, speaker_id={self.speaker_id}>"
+class ItemSchema(ma.SQLAlchemyAutoSchema):
+    class Meta:
+        model = Item
+        load_instance = True
+        include_fk = True
+
+    reviews = fields.Nested('ReviewSchema', many=True, exclude=('item',))
+    customers = fields.List(fields.Nested('CustomerSchema', exclude=('reviews', 'items')))
+
+
+class ReviewSchema(ma.SQLAlchemyAutoSchema):
+    class Meta:
+        model = Review
+        load_instance = True
+        include_fk = True
+
+    customer = fields.Nested('CustomerSchema', exclude=('reviews', 'items'))
+    item = fields.Nested('ItemSchema', exclude=('reviews', 'customers')) 
